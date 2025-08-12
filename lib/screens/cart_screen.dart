@@ -83,7 +83,7 @@ class _CartScreenState extends State<CartScreen> {
 
   void _checkout() {
     if (_userId != null) {
-      Navigator.pushNamed(context, '/checkout'); // Điều hướng đến CheckoutScreen
+      Navigator.pushNamed(context, '/checkout');
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Vui lòng đăng nhập để thanh toán!')),
@@ -113,7 +113,7 @@ class _CartScreenState extends State<CartScreen> {
 
     if (_userId == null) {
       return Scaffold(
-        appBar: const CustomAppBar(title: 'Giỏ hàng', showBackButton: true),
+        appBar: const CustomAppBar(title: 'Giỏ hàng',  showUserName: false),
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -131,7 +131,7 @@ class _CartScreenState extends State<CartScreen> {
 
     if (cartItems.isEmpty) {
       return Scaffold(
-        appBar: const CustomAppBar(title: 'Giỏ hàng', showBackButton: true),
+        appBar: const CustomAppBar(title: 'Giỏ hàng',  showUserName: false),
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
@@ -150,7 +150,7 @@ class _CartScreenState extends State<CartScreen> {
     final total = _calculateTotal(cartItems, products);
 
     return Scaffold(
-      appBar: const CustomAppBar(title: 'Giỏ hàng', showBackButton: true),
+      appBar: const CustomAppBar(title: 'Giỏ hàng',  showUserName: false),
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(

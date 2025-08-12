@@ -1,145 +1,125 @@
+import 'dart:convert'; // Thêm import này để sử dụng base64Decode
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '/providers/auth_provider.dart';
-import 'package:flutter_spinkit/flutter_spinkit.dart';
-import '/providers/product_provider.dart';
-import '/screens/cart_screen.dart';
 
 class CustomAppBar extends StatelessWidget implements PreferredSizeWidget {
-  final String? title;
-  final bool showBackButton;
-  final List<Widget>? actions;
+  final String title;
+  final bool showUserName;
+  final List<Widget>? actions; // Thêm tham số actions
 
   const CustomAppBar({
     super.key,
-    this.title,
-    this.showBackButton = false,
-    this.actions,
+    required this.title,
+    this.showUserName = false,
+    this.actions, // Thêm vào constructor
   });
 
   @override
   Widget build(BuildContext context) {
     final authProvider = Provider.of<AuthProvider>(context);
     final isDarkMode = authProvider.isDarkMode;
-    final photoUrl = authProvider.userData?['photoURL'] as String?;
-    final userName = authProvider.userData?['name'] as String? ?? 'User';
-    final productProvider = Provider.of<ProductProvider>(context);
-    final cartItemCount = productProvider.cartItems.length;
+    final userData = authProvider.userData;
+    final isLoggedIn = authProvider.user != null; // Kiểm tra trạng thái đăng nhập
+    final currentRoute = ModalRoute.of(context)?.settings.name;
+
+    // Chỉ hiển thị nút back khi không ở các màn hình gốc và có thể quay lại
+    bool shouldShowBackButton = Navigator.canPop(context) &&
+        currentRoute != '/main' &&
+        currentRoute != '/login' &&
+        currentRoute != '/register';
 
     return AppBar(
-      backgroundColor: isDarkMode ? const Color(0xFF2E2E48) : const Color(0xFFE0E0E0),
-      elevation: 2,
-      leading: showBackButton
-          ? IconButton(
-              icon: Icon(Icons.arrow_back, color: isDarkMode ? Colors.white : Colors.black87),
-              onPressed: () => Navigator.pop(context),
-            )
-          : null,
-      title: title != null
-          ? Row(
-              children: [
-                Text(
-                  title!,
-                  style: TextStyle(color: isDarkMode ? Colors.white : Colors.black87),
+      leading: SizedBox(
+        width: 56, // Giới hạn chiều rộng của leading
+        child: Row(
+          children: [
+            if (shouldShowBackButton)
+              IconButton(
+                icon: const Icon(Icons.arrow_back, color: Colors.white),
+                onPressed: () => Navigator.pop(context),
+              ),
+            Flexible(
+              child: Padding(
+                padding: const EdgeInsets.only(left: 8.0), // Margin-left cho logo
+                child: Image.asset(
+                  'assets/logo2.png', // Đường dẫn logo đã khai báo trong pubspec.yaml
+                  height: 40,
+                  fit: BoxFit.contain,
+                  errorBuilder: (context, error, stackTrace) {
+                    return const Icon(Icons.store, color: Colors.white, size: 40);
+                  },
                 ),
-                const SizedBox(width: 8),
-                if (userName.isNotEmpty)
-                  Text(
-                    '($userName)',
-                    style: TextStyle(
-                      color: isDarkMode ? Colors.white70 : Colors.black54,
-                      fontSize: 14,
-                    ),
-                  ),
-              ],
-            )
-          : Image.asset(
-              'assets/logo2.png',
-              height: 40,
-              fit: BoxFit.contain,
+              ),
             ),
+          ],
+        ),
+      ),
+      title: Text(
+        title,
+        style: TextStyle(
+          color: isDarkMode ? Colors.white : Colors.black87,
+          fontWeight: FontWeight.bold,
+          overflow: TextOverflow.ellipsis, // Ngăn tràn văn bản
+        ),
+      ),
+      backgroundColor: isDarkMode ? const Color(0xFF263238) : const Color(0xFF4FC3F7),
+      elevation: 4,
       actions: [
         IconButton(
           icon: Icon(
             isDarkMode ? Icons.light_mode : Icons.dark_mode,
-            color: isDarkMode ? Colors.white : Colors.black87,
+            color: Colors.white,
           ),
+          tooltip: isDarkMode ? 'Chuyển sang chế độ sáng' : 'Chuyển sang chế độ tối',
           onPressed: () {
             authProvider.toggleDarkMode();
           },
         ),
-        IconButton(
-          icon: Stack(
-            children: [
-              CircleAvatar(
-                radius: 15,
-                backgroundImage: photoUrl != null && photoUrl.isNotEmpty
-                    ? CachedNetworkImageProvider(photoUrl)
-                    : null,
-                child: photoUrl == null || photoUrl.isEmpty
-                    ? const Icon(Icons.person, color: Color(0xFF4A90E2))
-                    : null,
-                backgroundColor: isDarkMode ? Colors.grey[800] : Colors.grey[200],
-              ),
-              if (authProvider.hasUnreadNotifications)
-                Positioned(
-                  right: 0,
-                  top: 0,
-                  child: Container(
-                    padding: const EdgeInsets.all(2),
-                    decoration: const BoxDecoration(
-                      color: Colors.red,
-                      shape: BoxShape.circle,
-                    ),
-                    constraints: const BoxConstraints(
-                      minWidth: 10,
-                      minHeight: 10,
-                    ),
-                  ),
-                ),
-            ],
-          ),
-          onPressed: () {
-            Navigator.pushNamed(context, '/profile');
-          },
-        ),
-        // Thêm biểu tượng giỏ hàng với badge
-        Stack(
-          children: [
-            IconButton(
-              icon: const Icon(Icons.shopping_cart, color: Color(0xFF4A90E2)),
-              onPressed: () => Navigator.pushNamed(context, '/cart'),
+        Padding(
+          padding: const EdgeInsets.only(right: 12.0),
+          child: GestureDetector(
+            onTap: () => Navigator.pushNamed(context, isLoggedIn ? '/profile' : '/login'),
+            child: CircleAvatar(
+              radius: 18,
+              backgroundImage: _getAvatarImageProvider(userData, isLoggedIn),
+              child: _getAvatarChild(userData, isLoggedIn),
+              backgroundColor: isDarkMode ? Colors.grey[700] : Colors.grey[300],
             ),
-            if (cartItemCount > 0)
-              Positioned(
-                right: 8,
-                top: 8,
-                child: Container(
-                  padding: const EdgeInsets.all(2),
-                  decoration: BoxDecoration(
-                    color: Colors.red,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  constraints: const BoxConstraints(
-                    minWidth: 16,
-                    minHeight: 16,
-                  ),
-                  child: Text(
-                    cartItemCount.toString(),
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 10,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ),
-              ),
-          ],
+          ),
         ),
-        if (actions != null) ...actions!,
       ],
     );
+  }
+
+  ImageProvider? _getAvatarImageProvider(Map<String, dynamic>? userData, bool isLoggedIn) {
+    if (!isLoggedIn || userData == null || userData['photoURL'] == null || userData['photoURL'].isEmpty) {
+      return null; // Không có ảnh khi chưa đăng nhập hoặc không có photoURL
+    }
+
+    final photoUrl = userData['photoURL'] as String;
+    // Kiểm tra xem photoURL có phải là base64
+    if (photoUrl.contains(RegExp(r'^data:image\/[a-z]+;base64,')) || photoUrl.contains(RegExp(r'^[A-Za-z0-9+/=]+'))) {
+      try {
+        // Loại bỏ tiền tố "data:image/..." nếu có
+        final base64String = photoUrl.startsWith('data:image')
+            ? photoUrl.split(',')[1]
+            : photoUrl;
+        return MemoryImage(base64Decode(base64String)); // Giải mã base64
+      } catch (e) {
+        debugPrint('Invalid base64 in CustomAppBar: $photoUrl, Error: $e');
+        return null;
+      }
+    }
+    return CachedNetworkImageProvider(photoUrl); // Ảnh từ URL
+  }
+
+  Widget? _getAvatarChild(Map<String, dynamic>? userData, bool isLoggedIn) {
+    if (!isLoggedIn || userData == null || userData['photoURL'] == null || userData['photoURL'].isEmpty) {
+      return const Icon(Icons.person, size: 18, color: Colors.grey); // Biểu tượng mặc định
+    }
+    return null;
   }
 
   @override

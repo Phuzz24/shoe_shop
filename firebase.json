@@ -1,1 +1,41 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"shoe-shop-flutter","appId":"1:820470788279:android:e30393cbda5b7a0eab5d32","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"shoe-shop-flutter","configurations":{"android":"1:820470788279:android:e30393cbda5b7a0eab5d32","ios":"1:820470788279:ios:ee5e31e1f5a88c33ab5d32","macos":"1:820470788279:ios:ee5e31e1f5a88c33ab5d32","web":"1:820470788279:web:c6e72c1eba22caa5ab5d32","windows":"1:820470788279:web:471582353b16eb83ab5d32"}}}}}}
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "shoe-shop-flutter",
+          "appId": "1:820470788279:android:e30393cbda5b7a0eab5d32",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "shoe-shop-flutter",
+          "configurations": {
+            "android": "1:820470788279:android:e30393cbda5b7a0eab5d32",
+            "ios": "1:820470788279:ios:ee5e31e1f5a88c33ab5d32",
+            "macos": "1:820470788279:ios:ee5e31e1f5a88c33ab5d32",
+            "web": "1:820470788279:web:c6e72c1eba22caa5ab5d32",
+            "windows": "1:820470788279:web:471582353b16eb83ab5d32"
+          }
+        }
+      }
+    }
+  },
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "default",
+      "ignore": [
+        "node_modules",
+        ".git",
+        "firebase-debug.log",
+        "firebase-debug.*.log",
+        "*.local"
+      ],
+      "predeploy": [
+        "npm --prefix \"$RESOURCE_DIR\" run lint"
+      ]
+    }
+  ]
+}

@@ -84,7 +84,7 @@ class ProductCard extends StatelessWidget {
                         color: authProvider.isDarkMode ? Colors.green[700] : Colors.green[800],
                       ),
                     ),
-                  IconButton(
+                 IconButton(
                     icon: Icon(
                       isFavorite ? Icons.favorite : Icons.favorite_border,
                       color: isFavorite ? const Color(0xFFFF4040) : authProvider.isDarkMode ? Colors.white70 : Colors.black54,
@@ -93,8 +93,7 @@ class ProductCard extends StatelessWidget {
                       if (authProvider.user != null) {
                         productProvider.toggleFavorite(
                           authProvider.user!.uid,
-                          product.id,
-                          isFavorite,
+                          product.id, // Chỉ truyền 2 tham số
                         );
                       } else {
                         ScaffoldMessenger.of(context).showSnackBar(

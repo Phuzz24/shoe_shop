@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '/providers/auth_provider.dart';
 import '/providers/product_provider.dart';
 import '/screens/product/product_detail_screen.dart';
+import '/widgets/custom_app_bar.dart';
 
 class FavoriteScreen extends StatefulWidget {
   const FavoriteScreen({super.key});
@@ -22,6 +23,7 @@ class _FavoriteScreenState extends State<FavoriteScreen> {
     final isDarkMode = authProvider.isDarkMode;
     List favorites = productProvider.favoriteProducts;
 
+    // Áp dụng bộ lọc
     if (_filter == 'priceLowToHigh') {
       favorites.sort((a, b) => a.price.compareTo(b.price));
     } else if (_filter == 'priceHighToLow') {
@@ -29,32 +31,9 @@ class _FavoriteScreenState extends State<FavoriteScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: Text(
-          'Sản phẩm yêu thích (${favorites.length})',
-          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20, color: Colors.white),
-        ),
-        backgroundColor: isDarkMode ? const Color(0xFF1A237E) : const Color(0xFF1976D2),
-        elevation: 0,
-        actions: [
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.filter_list, color: Colors.white),
-            onSelected: (value) {
-              setState(() {
-                _filter = value;
-              });
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem(value: 'all', child: Text('Tất cả')),
-              const PopupMenuItem(value: 'priceLowToHigh', child: Text('Giá: Thấp đến Cao')),
-              const PopupMenuItem(value: 'priceHighToLow', child: Text('Giá: Cao đến Thấp')),
-            ],
-          ),
-        ],
+      appBar: const CustomAppBar(
+        title: 'Sản phẩm yêu thích',
+        showUserName: false,
       ),
       body: Container(
         decoration: BoxDecoration(
@@ -181,18 +160,24 @@ class _FavoriteScreenState extends State<FavoriteScreen> {
                                 ],
                               ),
                             ),
-                            IconButton(
+                           IconButton(
                               icon: const Icon(Icons.favorite, color: Colors.red),
-                              onPressed: () {
-                                productProvider.toggleFavorite(authProvider.user!.uid, product.id, true);
-                                setState(() {}); // Cập nhật UI
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Đã xóa khỏi yêu thích')),
-                                );
+                              onPressed: () async {
+                                try {
+                                  await productProvider.toggleFavorite(authProvider.user!.uid, product.id); // Sửa: chỉ truyền 2 tham số
+                                  setState(() {}); // Cập nhật UI
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Đã xóa khỏi yêu thích')),
+                                  );
+                                } catch (e) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('Lỗi: $e')),
+                                  );
+                                }
                               },
                               padding: EdgeInsets.zero,
                             ),
-                          ],
+                                                      ],
                         ),
                       ),
                     ),

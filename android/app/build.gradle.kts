@@ -4,7 +4,7 @@ plugins {
     id("kotlin-android")
     id("dev.flutter.flutter-gradle-plugin")
 }
-
+apply plugin: 'com.google.gms.google-services'
 android {
     namespace = "com.example.shop_shop"
     compileSdk = flutter.compileSdkVersion

@@ -1,11 +1,17 @@
+import 'dart:math';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '/providers/auth_provider.dart';
 import '/providers/product_provider.dart';
 import 'package:intl/intl.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
+import 'package:crypto/crypto.dart';
+import 'package:uuid/uuid.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '/screens/order_success_screen.dart';
 
 class CheckoutScreen extends StatefulWidget {
@@ -22,14 +28,19 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   String? _city;
   String? _district;
   String? _ward;
-  String? _paymentMethod = 'COD'; // Default to COD
+  String? _paymentMethod = 'COD';
   bool _isLoading = false;
-  bool _isFetching = true; // Thêm trạng thái tải dữ liệu
+  bool _isFetching = true;
 
-  // Danh sách để lưu dữ liệu từ API
   List<dynamic> _cities = [];
   Map<String, List<dynamic>> _districts = {};
   Map<String, List<dynamic>> _wards = {};
+
+  // Cấu hình ZaloPay mới
+  static const String zpAppId = '2553';
+  static const String zpKey1 = 'PcY4iZIKFCIdgZvA6ueMcMHHUbRLYjPL';
+  static const String zpKey2 = 'kLtgPl8HHhfvMuDHPwKfgfsY4Ydm9eIz';
+  static const String zpEndpoint = 'https://sb-openapi.zalopay.vn/v2/create';
 
   @override
   void initState() {
@@ -40,11 +51,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       _nameController.text = userData['name'] ?? '';
       _phoneController.text = userData['phone'] ?? '';
       _addressController.text = userData['address'] ?? '';
-      _city = userData['city']; // Không gán mặc định nếu chưa tải xong
+      _city = userData['city'];
       _district = userData['district'];
       _ward = userData['ward'];
     }
-    _fetchProvinces(); // Gọi API để lấy danh sách tỉnh/thành phố
+    _fetchProvinces();
   }
 
   Future<void> _fetchProvinces() async {
@@ -64,9 +75,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           _isFetching = false;
         });
       } else {
-        throw Exception('Failed to load provinces: Status ${response.statusCode}');
+        throw Exception('Không thể tải danh sách tỉnh: Mã trạng thái ${response.statusCode}');
       }
     } catch (e) {
+      debugPrint('Lỗi fetchProvinces: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Lỗi khi tải danh sách tỉnh: $e')),
       );
@@ -92,9 +104,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           _isFetching = false;
         });
       } else {
-        throw Exception('Failed to load districts: Status ${response.statusCode}');
+        throw Exception('Không thể tải danh sách quận/huyện: Mã trạng thái ${response.statusCode}');
       }
     } catch (e) {
+      debugPrint('Lỗi fetchDistricts: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Lỗi khi tải danh sách quận/huyện: $e')),
       );
@@ -114,18 +127,162 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
           if (_ward == null && _wards[districtName]!.isNotEmpty) {
             _ward = _wards[districtName]![0]['name'];
           } else if (_ward != null && _wards[districtName]!.any((w) => w['name'] == _ward)) {
-            _ward = _ward; // Giữ nguyên nếu hợp lệ
+            _ward = _ward;
           }
           _isFetching = false;
         });
       } else {
-        throw Exception('Failed to load wards: Status ${response.statusCode}');
+        throw Exception('Không thể tải danh sách xã/phường: Mã trạng thái ${response.statusCode}');
       }
     } catch (e) {
+      debugPrint('Lỗi fetchWards: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Lỗi khi tải danh sách xã/phường: $e')),
       );
       setState(() => _isFetching = false);
+    }
+  }
+
+  
+
+ Future<Map<String, dynamic>?> _createZaloPayOrder(double amount, String orderId) async {
+  try {
+    final uuid = Uuid();
+    final appTransId = '${DateFormat('yyMMdd').format(DateTime.now())}_${uuid.v1()}';
+    final embedData = {
+      'redirecturl': 'shopshop://zalopay',
+      'callback_url': 'https://8d7e18be4a63.ngrok-free.app/api/zalopay-callback', // Ngrok URL của bạn
+    };
+    final items = [];
+
+    final currentTime = DateTime.now().millisecondsSinceEpoch; // 01:36 AM +07, 01/08/2025 ≈ 1722468960000
+    debugPrint('Current time (milliseconds): $currentTime');
+
+    final params = {
+      'app_id': zpAppId,
+      'app_trans_id': appTransId,
+      'app_user': 'user123',
+      'app_time': currentTime.toString(),
+      'amount': amount.toInt().toString(),
+      'item': jsonEncode(items),
+      'embed_data': jsonEncode(embedData),
+      'description': 'Thanh toán đơn hàng #$orderId',
+      'bank_code': '',
+      'mac': '',
+    };
+
+   final dataToSign = '${params['app_id']}|${params['app_trans_id']}|${params['app_user']}|${params['amount']}|${params['app_time']}|${params['embed_data']}|${params['item']}';
+final hmac = Hmac(sha256, utf8.encode(zpKey1));
+final mac = hmac.convert(utf8.encode(dataToSign)).toString();
+params['mac'] = mac;
+
+    debugPrint('Params gửi đến ZaloPay: $params');
+
+    final response = await http.post(
+      Uri.parse(zpEndpoint),
+      headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+      body: params.map((k, v) => MapEntry(k, v.toString())),
+    ).timeout(const Duration(seconds: 10), onTimeout: () {
+      throw Exception('Kết nối đến ZaloPay timeout');
+    });
+
+    debugPrint('Response từ ZaloPay: ${response.statusCode} - ${response.body}');
+
+    if (response.statusCode == 200) {
+      final result = jsonDecode(response.body);
+      if (result['return_code'] == 1) {
+        return {
+          'zp_trans_token': result['zp_trans_token'],
+          'app_trans_id': appTransId,
+        };
+      } else {
+        throw Exception('ZaloPay: ${result['return_message']}');
+      }
+    } else {
+      throw Exception('Lỗi gọi API ZaloPay: ${response.statusCode} - ${response.body}');
+    }
+  } catch (e) {
+    debugPrint('Lỗi trong _createZaloPayOrder: $e');
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('Lỗi tạo giao dịch ZaloPay: $e')),
+    );
+    return null;
+  }
+}
+
+  Future<bool> _openZaloPayApp(String zpTransToken) async {
+    if (kIsWeb) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Thanh toán ZaloPay không hỗ trợ trên web. Vui lòng thử trên Android.')),
+      );
+      return false;
+    }
+    final url = 'zalo://zaloapp?token=$zpTransToken';
+    try {
+      if (await canLaunchUrl(Uri.parse(url))) {
+        await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+        return true;
+      } else {
+        throw Exception('Không thể mở ứng dụng ZaloPay');
+      }
+    } catch (e) {
+      debugPrint('Lỗi trong _openZaloPayApp: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Lỗi mở ứng dụng ZaloPay: $e')),
+      );
+      return false;
+    }
+  }
+
+  Future<void> _checkZaloPayStatus(String appTransId) async {
+    try {
+      final params = {
+        'app_id': zpAppId,
+        'app_trans_id': appTransId,
+        'mac': '',
+      };
+      final dataToSign = '${params['app_id']}|${params['app_trans_id']}|$zpKey1';
+      final hmac = Hmac(sha256, utf8.encode(zpKey1));
+      final mac = hmac.convert(utf8.encode(dataToSign)).toString();
+      params['mac'] = mac;
+
+      final response = await http.post(
+        Uri.parse('https://sb-openapi.zalopay.vn/v2/query'),
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: params.map((k, v) => MapEntry(k, v.toString())),
+      );
+
+      if (response.statusCode == 200) {
+        final result = jsonDecode(response.body);
+        debugPrint('Status check result: $result');
+        if (result['return_code'] == 1 && result['is_processing'] == false) {
+          final snapshot = await FirebaseFirestore.instance
+              .collection('orders')
+              .where('app_trans_id', isEqualTo: appTransId)
+              .get();
+          if (snapshot.docs.isNotEmpty) {
+            final orderId = snapshot.docs.first.id;
+            await FirebaseFirestore.instance.collection('orders').doc(orderId).update({
+              'status': 'Đã thanh toán',
+              'paymentStatus': 'Thành công',
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const OrderSuccessScreen()),
+            );
+          }
+        } else if (result['return_code'] != 1) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Thanh toán thất bại: ${result['return_message']}')),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('Lỗi kiểm tra trạng thái: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Lỗi kiểm tra trạng thái: $e')),
+      );
     }
   }
 
@@ -141,16 +298,19 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       return;
     }
 
-    if (_nameController.text.isEmpty || _phoneController.text.isEmpty || _addressController.text.isEmpty || _city == null || _district == null || _ward == null) {
+    if (_nameController.text.isEmpty ||
+        _phoneController.text.isEmpty ||
+        _addressController.text.isEmpty ||
+        _city == null ||
+        _district == null ||
+        _ward == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Vui lòng điền đầy đủ thông tin!')),
       );
       return;
     }
 
-    setState(() {
-      _isLoading = true;
-    });
+    setState(() => _isLoading = true);
 
     try {
       final cartItems = productProvider.cartItems;
@@ -164,9 +324,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       final totalAmount = cartItems.fold(0.0, (sum, item) {
         final product = productProvider.getProductById(item['productId']);
         if (product != null) {
-          return sum + (product.isOnSale ?? false
-              ? product.salePrice * (item['quantity'] as num)
-              : product.price * (item['quantity'] as num));
+          return sum +
+              (product.isOnSale ?? false
+                  ? product.salePrice * (item['quantity'] as num)
+                  : product.price * (item['quantity'] as num));
         }
         return sum;
       });
@@ -180,6 +341,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               'price': productProvider.getProductById(item['productId'])?.price ?? 0.0,
               'salePrice': productProvider.getProductById(item['productId'])?.salePrice ?? 0.0,
               'isOnSale': productProvider.getProductById(item['productId'])?.isOnSale ?? false,
+              'name': productProvider.getProductName(item['productId']),
             }).toList(),
         'totalAmount': totalAmount,
         'name': _nameController.text,
@@ -189,14 +351,60 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
         'district': _district,
         'ward': _ward,
         'paymentMethod': _paymentMethod,
-        'status': 'shipping', // Mặc định trạng thái là "đang giao"
+        'status': _paymentMethod == 'COD' ? 'Chờ xử lý' : 'Chờ thanh toán',
         'createdAt': FieldValue.serverTimestamp(),
         'orderDate': DateTime.now().toIso8601String(),
       };
 
       final docRef = await FirebaseFirestore.instance.collection('orders').add(orderData);
 
-      // Xóa giỏ hàng sau khi tạo đơn hàng
+      if (_paymentMethod == 'ZaloPay') {
+        final zpOrder = await _createZaloPayOrder(totalAmount, docRef.id);
+        if (zpOrder != null) {
+          final zpTransToken = zpOrder['zp_trans_token'];
+          final appTransId = zpOrder['app_trans_id'];
+          if (!kIsWeb) {
+            final success = await _openZaloPayApp(zpTransToken);
+            if (!success) throw Exception('Không thể mở ZaloPay');
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Web: Mở ZaloPay không hỗ trợ. Kiểm tra trạng thái thủ công.')),
+            );
+            Future.delayed(const Duration(seconds: 5), () {
+              _checkZaloPayStatus(appTransId);
+            });
+          }
+          await FirebaseFirestore.instance.collection('orders').doc(docRef.id).update({
+            'status': 'Chờ xác nhận',
+            'app_trans_id': appTransId,
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        } else {
+          throw Exception('Không thể tạo giao dịch ZaloPay. Vui lòng kiểm tra log: ${e.toString()}');
+        }
+      }
+
+      await productProvider.productService.addNotification(
+        userId,
+        {
+          'title': 'Đặt hàng thành công',
+          'message': 'Đơn hàng #${docRef.id.substring(0, 8)} đã được tạo thành công với tổng giá trị ${NumberFormat('#,###').format(totalAmount)} VNĐ.',
+          'type': 'Đơn hàng',
+          'isRead': false,
+          'createdAt': FieldValue.serverTimestamp(),
+        },
+      );
+
+      try {
+        await productProvider.productService.sendPushNotification(
+          userId,
+          'Đặt hàng thành công',
+          'Đơn hàng #${docRef.id.substring(0, 8)} đã được tạo thành công.',
+        );
+      } catch (e) {
+        debugPrint('Lỗi gửi thông báo đẩy: $e');
+      }
+
       for (var item in cartItems) {
         await productProvider.removeFromCart(userId, item['productId']);
       }
@@ -204,18 +412,19 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Đơn hàng đã được tạo!')),
       );
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => const OrderSuccessScreen()),
-      );
+      if (_paymentMethod != 'ZaloPay' || kIsWeb) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const OrderSuccessScreen()),
+        );
+      }
     } catch (e) {
+      debugPrint('Lỗi trong _createOrder: ${e.toString()}');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Lỗi khi tạo đơn hàng: $e')),
+        SnackBar(content: Text('Lỗi khi tạo đơn hàng: ${e.toString()}')),
       );
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+      setState(() => _isLoading = false);
     }
   }
 
@@ -228,9 +437,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     final totalAmount = cartItems.fold(0.0, (sum, item) {
       final product = productProvider.getProductById(item['productId']);
       if (product != null) {
-        return sum + (product.isOnSale ?? false
-            ? product.salePrice * (item['quantity'] as num)
-            : product.price * (item['quantity'] as num));
+        return sum +
+            (product.isOnSale ?? false
+                ? product.salePrice * (item['quantity'] as num)
+                : product.price * (item['quantity'] as num));
       }
       return sum;
     });
@@ -367,9 +577,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                       ? null
                       : (value) {
                           if (value != null) {
-                            setState(() {
-                              _ward = value;
-                            });
+                            setState(() => _ward = value);
                           }
                         },
                 ),
@@ -384,11 +592,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     Radio<String>(
                       value: 'COD',
                       groupValue: _paymentMethod,
-                      onChanged: (value) {
-                        setState(() {
-                          _paymentMethod = value;
-                        });
-                      },
+                      onChanged: (value) => setState(() => _paymentMethod = value),
                     ),
                     const Text('Thanh toán khi nhận hàng (COD)'),
                   ],
@@ -398,11 +602,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     Radio<String>(
                       value: 'ZaloPay',
                       groupValue: _paymentMethod,
-                      onChanged: (value) {
-                        setState(() {
-                          _paymentMethod = value;
-                        });
-                      },
+                      onChanged: (value) => setState(() => _paymentMethod = value),
                     ),
                     const Text('Thanh toán online (ZaloPay)'),
                   ],

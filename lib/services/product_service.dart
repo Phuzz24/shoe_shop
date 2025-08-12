@@ -1,6 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart' show debugPrint;
 import '../models/product.dart';
 import '../models/review.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 
 class ProductService {
   final CollectionReference _productsCollection = FirebaseFirestore.instance.collection('products');
@@ -21,6 +24,52 @@ class ProductService {
     return null;
   }
 
+  Future<void> addProduct(Map<String, dynamic> productData) async {
+    try {
+      await _productsCollection.add({
+        'name': productData['name'],
+        'price': double.parse(productData['price'].toString()),
+        'salePrice': double.parse(productData['salePrice'].toString()),
+        'imageUrl': productData['imageUrl'],
+        'isOnSale': productData['isOnSale'] ?? false,
+        'stock': productData['stock'] ?? 100,
+        'sizes': productData['sizes'] ?? [],
+      });
+      debugPrint('Success: Product added');
+    } catch (e) {
+      debugPrint('Error: Lỗi khi thêm sản phẩm - $e');
+      throw Exception('Lỗi khi thêm sản phẩm: $e');
+    }
+  }
+
+  Future<void> updateProduct(String productId, Map<String, dynamic> productData) async {
+    try {
+      await _productsCollection.doc(productId).update({
+        'name': productData['name'],
+        'price': double.parse(productData['price'].toString()),
+        'salePrice': double.parse(productData['salePrice'].toString()),
+        'imageUrl': productData['imageUrl'],
+        'isOnSale': productData['isOnSale'],
+        'stock': productData['stock'],
+        'sizes': productData['sizes'],
+      });
+      debugPrint('Success: Product updated with ID: $productId');
+    } catch (e) {
+      debugPrint('Error: Lỗi khi cập nhật sản phẩm - $e');
+      throw Exception('Lỗi khi cập nhật sản phẩm: $e');
+    }
+  }
+
+  Future<void> deleteProduct(String productId) async {
+    try {
+      await _productsCollection.doc(productId).delete();
+      debugPrint('Success: Product deleted with ID: $productId');
+    } catch (e) {
+      debugPrint('Error: Lỗi khi xóa sản phẩm - $e');
+      throw Exception('Lỗi khi xóa sản phẩm: $e');
+    }
+  }
+
   Future<void> addToCart(String userId, String productId, dynamic quantity, dynamic size) async {
     final cartRef = _usersCollection.doc(userId).collection('cart').doc(productId);
     final productRef = _productsCollection.doc(productId);
@@ -34,7 +83,6 @@ class ProductService {
         ? productData['sizes'].split(',').map((s) => int.tryParse(s.trim()) ?? 0).toList()
         : List<int>.from(productData['sizes'] ?? []);
 
-    // Chuyển đổi quantity và size từ dynamic sang num
     final parsedQuantity = int.tryParse(quantity.toString()) ?? 0;
     final parsedSize = int.tryParse(size.toString()) ?? 0;
 
@@ -75,23 +123,23 @@ class ProductService {
   }
 
   Future<void> addToFavorites(String userId, String productId) async {
-  print('Adding to favorites - userId: $userId, productId: $productId');
-  await _usersCollection
-      .doc(userId)
-      .collection('favorites')
-      .doc(productId)
-      .set({
-        'productId': productId,
-        'addedAt': FieldValue.serverTimestamp(),
-      });
-  print('Added to favorites successfully');
-}
+    debugPrint('Adding to favorites - userId: $userId, productId: $productId');
+    await _usersCollection
+        .doc(userId)
+        .collection('favorites')
+        .doc(productId)
+        .set({
+          'productId': productId,
+          'addedAt': FieldValue.serverTimestamp(),
+        });
+    debugPrint('Added to favorites successfully');
+  }
 
-Future<void> removeFromFavorites(String userId, String productId) async {
-  print('Removing from favorites - userId: $userId, productId: $productId');
-  await _usersCollection.doc(userId).collection('favorites').doc(productId).delete();
-  print('Removed from favorites successfully');
-}
+  Future<void> removeFromFavorites(String userId, String productId) async {
+    debugPrint('Removing from favorites - userId: $userId, productId: $productId');
+    await _usersCollection.doc(userId).collection('favorites').doc(productId).delete();
+    debugPrint('Removed from favorites successfully');
+  }
 
   Future<List<String>> getFavoriteIds(String userId) async {
     final snapshot = await _usersCollection.doc(userId).collection('favorites').get();
@@ -110,7 +158,7 @@ Future<void> removeFromFavorites(String userId, String productId) async {
         return Review.fromMap(data, doc.id);
       }).toList();
     } catch (e) {
-      print('Error: Lỗi khi lấy danh sách đánh giá - $e');
+      debugPrint('Error: Lỗi khi lấy danh sách đánh giá - $e');
       return [];
     }
   }
@@ -150,7 +198,9 @@ Future<void> removeFromFavorites(String userId, String productId) async {
       await _productsCollection.doc(productId).update({
         'averageRating': averageRating,
       });
+      debugPrint('Success: Review added and average rating updated');
     } catch (e) {
+      debugPrint('Error: Lỗi khi thêm đánh giá - $e');
       throw Exception('Lỗi khi thêm đánh giá: $e');
     }
   }
@@ -169,6 +219,7 @@ Future<void> removeFromFavorites(String userId, String productId) async {
               })
           .toList();
     } catch (e) {
+      debugPrint('Error: Lỗi khi lấy thông báo - $e');
       throw Exception('Lỗi khi lấy thông báo: $e');
     }
   }
@@ -181,4 +232,61 @@ Future<void> removeFromFavorites(String userId, String productId) async {
         .get();
     return snapshot.docs.map((doc) => doc.data() as Map<String, dynamic>).toList();
   }
+
+  Future<void> addNotification(String userId, Map<String, dynamic> notification) async {
+    try {
+      await _usersCollection
+          .doc(userId)
+          .collection('notifications')
+          .add({
+            ...notification,
+            'timestamp': FieldValue.serverTimestamp(),
+          });
+      debugPrint('Success: Notification added for userId: $userId');
+    } catch (e) {
+      debugPrint('Error: Lỗi khi thêm thông báo - $e');
+      throw Exception('Lỗi khi thêm thông báo: $e');
+    }
+  }
+
+  Future<void> sendPushNotification(String userId, String title, String message) async {
+  try {
+    final userDoc = await _usersCollection.doc(userId).get();
+    final userData = userDoc.data() as Map<String, dynamic>?;
+    final fcmToken = userData?['fcmToken'] as String?;
+    if (fcmToken == null) {
+      debugPrint('Error: Không tìm thấy FCM token cho userId: $userId');
+      throw Exception('Không tìm thấy FCM token');
+    }
+
+    const serverKey = 'YOUR_FCM_SERVER_KEY'; // Thay bằng server key thực tế
+    final url = Uri.parse('https://fcm.googleapis.com/fcm/send');
+    final headers = {
+      'Content-Type': 'application/json',
+      'Authorization': 'key=$serverKey',
+    };
+    final body = jsonEncode({
+      'to': fcmToken,
+      'notification': {
+        'title': title,
+        'body': message,
+        'click_action': 'FLUTTER_NOTIFICATION_CLICK',
+      },
+      'data': {
+        'userId': userId,
+      },
+    });
+
+    final response = await http.post(url, headers: headers, body: body);
+    if (response.statusCode == 200) {
+      debugPrint('Success: Push notification sent to userId: $userId');
+    } else {
+      debugPrint('Error: Failed to send push notification - ${response.body}');
+      throw Exception('Failed to send push notification: ${response.statusCode}');
+    }
+  } catch (e) {
+    debugPrint('Error: Lỗi khi gửi thông báo đẩy - $e');
+    // Có thể thông báo cho người dùng hoặc admin nếu cần
+  }
+}
 }

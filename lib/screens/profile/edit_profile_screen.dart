@@ -1,10 +1,14 @@
+import 'package:cached_network_image/cached_network_image.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
-import 'dart:io';
+import 'dart:convert';
+import 'dart:io' show File;
 import 'package:flutter/foundation.dart' show kIsWeb;
 import '/providers/auth_provider.dart';
+import '/widgets/custom_app_bar.dart';
 
 class EditProfileScreen extends StatefulWidget {
   const EditProfileScreen({super.key});
@@ -17,13 +21,13 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _nameController;
   late TextEditingController _phoneController;
-  late TextEditingController _photoUrlController;
   late TextEditingController _bioController;
   late TextEditingController _addressController;
   late TextEditingController _birthDateController;
   String? _gender;
-  File? _selectedImage;
+  XFile? _selectedImage;
   final ImagePicker _picker = ImagePicker();
+  bool _isUploading = false;
 
   @override
   void initState() {
@@ -32,12 +36,11 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final userData = authProvider.userData ?? {};
     _nameController = TextEditingController(text: userData['name'] ?? '');
     _phoneController = TextEditingController(text: userData['phone'] ?? '');
-    _photoUrlController = TextEditingController(text: userData['photoURL'] ?? '');
     _bioController = TextEditingController(text: userData['bio'] ?? '');
     _addressController = TextEditingController(text: userData['address'] ?? '');
     _birthDateController = TextEditingController(
       text: userData['birthDate'] != null
-          ? (userData['birthDate'] as Timestamp).toDate().toIso8601String().split('T')[0]
+          ? DateFormat('yyyy-MM-dd').format((userData['birthDate'] as Timestamp).toDate())
           : '',
     );
     _gender = userData['gender'] ?? 'Khác';
@@ -47,7 +50,6 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   void dispose() {
     _nameController.dispose();
     _phoneController.dispose();
-    _photoUrlController.dispose();
     _bioController.dispose();
     _addressController.dispose();
     _birthDateController.dispose();
@@ -55,32 +57,52 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
   }
 
   Future<void> _pickImage() async {
-    if (kIsWeb) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Chức năng chọn ảnh chỉ hỗ trợ trên mobile!')),
-      );
-      return;
-    }
     try {
       final pickedFile = await _picker.pickImage(source: ImageSource.gallery);
       if (pickedFile != null) {
-        final file = File(pickedFile.path);
-        if (await file.exists()) {
-          setState(() {
-            _selectedImage = file;
-            _photoUrlController.text = file.path; // Cập nhật TextField với đường dẫn
-          });
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('File ảnh không tồn tại!')),
-          );
-        }
+        setState(() {
+          _selectedImage = pickedFile; // Cập nhật ảnh ngay lập tức
+          print('Image selected: ${_selectedImage?.path}');
+        });
       }
     } catch (e) {
-      print('Lỗi chọn ảnh: $e');
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Lỗi khi chọn ảnh: $e')),
-      );
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Lỗi khi chọn ảnh: $e')),
+        );
+      }
+    }
+  }
+
+  Future<String?> _convertImageToBase64() async {
+    if (_selectedImage == null) {
+      print('No image selected for conversion');
+      return null;
+    }
+
+    setState(() {
+      _isUploading = true;
+    });
+
+    try {
+      final bytes = await _selectedImage!.readAsBytes();
+      final base64String = base64Encode(bytes);
+      print('Base64 generated successfully: ${base64String.substring(0, 50)}...');
+      return base64String;
+    } catch (e) {
+      print('Error converting image to base64: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Lỗi khi chuyển đổi ảnh: $e')),
+        );
+      }
+      return null;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUploading = false;
+        });
+      }
     }
   }
 
@@ -93,9 +115,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
       firstDate: DateTime(1900),
       lastDate: DateTime.now(),
     );
-    if (picked != null) {
+    if (picked != null && mounted) {
       setState(() {
-        _birthDateController.text = picked.toIso8601String().split('T')[0];
+        _birthDateController.text = DateFormat('yyyy-MM-dd').format(picked);
       });
     }
   }
@@ -105,19 +127,37 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
     final authProvider = Provider.of<AuthProvider>(context);
     final isDarkMode = authProvider.isDarkMode;
     final userData = authProvider.userData ?? {};
+    final photoUrl = userData['photoURL'] ?? '';
+
+    ImageProvider? avatarImage;
+    if (_selectedImage != null) {
+      avatarImage = FileImage(File(_selectedImage!.path)); // Ưu tiên ảnh vừa chọn
+      print('Using selected image for preview: ${_selectedImage!.path}');
+    } else if (photoUrl.isNotEmpty) {
+      if (photoUrl.contains(RegExp(r'^[A-Za-z0-9+/=]+'))) {
+        try {
+          avatarImage = MemoryImage(base64Decode(photoUrl));
+          print('Using base64 photoUrl for preview: ${photoUrl.substring(0, 50)}...');
+        } catch (e) {
+          print('Invalid base64: $photoUrl, Error: $e');
+          avatarImage = null;
+        }
+      } else {
+        print('Non-base64 skipped: $photoUrl');
+        avatarImage = null;
+      }
+    }
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Chỉnh sửa hồ sơ', style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: isDarkMode ? const Color(0xFF0F3460) : Colors.blue[700],
-        elevation: 0,
+      appBar: CustomAppBar(
+        title: 'Chỉnh sửa hồ sơ',
       ),
       body: Container(
         decoration: BoxDecoration(
           gradient: LinearGradient(
             colors: isDarkMode
-                ? [const Color(0xFF1A1A2E), const Color(0xFF16213E)]
-                : [Colors.white, Colors.grey[100]!],
+                ? [const Color(0xFF1A1A2E), const Color(0xFF16213E).withOpacity(0.9)]
+                : [Colors.white, Colors.grey[100]!.withOpacity(0.9)],
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
           ),
@@ -134,17 +174,8 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     children: [
                       CircleAvatar(
                         radius: 60,
-                        backgroundImage: _selectedImage != null
-                            ? FileImage(_selectedImage!)
-                            : (userData['photoURL'] != null &&
-                                    userData['photoURL'].isNotEmpty &&
-                                    File(userData['photoURL']).existsSync())
-                                ? FileImage(File(userData['photoURL']))
-                                : null,
-                        child: (_selectedImage == null &&
-                                (userData['photoURL'] == null ||
-                                    userData['photoURL'].isEmpty ||
-                                    !File(userData['photoURL']).existsSync()))
+                        backgroundImage: avatarImage,
+                        child: (avatarImage == null)
                             ? const Icon(Icons.person, size: 50, color: Colors.grey)
                             : null,
                         backgroundColor: isDarkMode ? Colors.grey[800] : Colors.grey[200],
@@ -160,9 +191,20 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                           child: IconButton(
                             icon: const Icon(Icons.camera_alt, color: Colors.white, size: 20),
                             onPressed: _pickImage,
+                            tooltip: 'Chọn ảnh đại diện',
                           ),
                         ),
                       ),
+                      if (_isUploading)
+                        Positioned.fill(
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.5),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const CircularProgressIndicator(color: Colors.white),
+                          ),
+                        ),
                     ],
                   ),
                 ),
@@ -179,7 +221,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     ),
                     prefixIcon: const Icon(Icons.person, color: Colors.blue),
                   ),
-                  style: TextStyle(color: isDarkMode ? Colors.white : Colors.black87),
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: isDarkMode ? Colors.white : Colors.black87,
+                      ),
                   validator: (value) {
                     if (value == null || value.isEmpty) return 'Vui lòng nhập tên';
                     return null;
@@ -198,33 +242,14 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     ),
                     prefixIcon: const Icon(Icons.phone, color: Colors.blue),
                   ),
-                  style: TextStyle(color: isDarkMode ? Colors.white : Colors.black87),
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: isDarkMode ? Colors.white : Colors.black87,
+                      ),
                   keyboardType: TextInputType.phone,
                   validator: (value) {
                     if (value == null || value.isEmpty) return 'Vui lòng nhập số điện thoại';
                     if (!RegExp(r'^\+?0[0-9]{9,10}$').hasMatch(value))
                       return 'Số điện thoại không hợp lệ';
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _photoUrlController,
-                  decoration: InputDecoration(
-                    labelText: 'URL ảnh đại diện',
-                    filled: true,
-                    fillColor: isDarkMode ? Colors.grey[850] : Colors.white,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
-                    ),
-                    prefixIcon: const Icon(Icons.image, color: Colors.blue),
-                  ),
-                  style: TextStyle(color: isDarkMode ? Colors.white : Colors.black87),
-                  keyboardType: TextInputType.url,
-                  validator: (value) {
-                    if (value != null && value.isNotEmpty && !Uri.parse(value).isAbsolute)
-                      return 'URL không hợp lệ';
                     return null;
                   },
                 ),
@@ -241,7 +266,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     ),
                     prefixIcon: const Icon(Icons.description, color: Colors.blue),
                   ),
-                  style: TextStyle(color: isDarkMode ? Colors.white : Colors.black87),
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: isDarkMode ? Colors.white : Colors.black87,
+                      ),
                   maxLength: 150,
                   maxLines: 3,
                 ),
@@ -258,7 +285,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     ),
                     prefixIcon: const Icon(Icons.location_on, color: Colors.blue),
                   ),
-                  style: TextStyle(color: isDarkMode ? Colors.white : Colors.black87),
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: isDarkMode ? Colors.white : Colors.black87,
+                      ),
                   maxLines: 2,
                 ),
                 const SizedBox(height: 16),
@@ -276,9 +305,12 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     suffixIcon: IconButton(
                       icon: const Icon(Icons.date_range, color: Colors.blue),
                       onPressed: _selectDate,
+                      tooltip: 'Chọn ngày sinh',
                     ),
                   ),
-                  style: TextStyle(color: isDarkMode ? Colors.white : Colors.black87),
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: isDarkMode ? Colors.white : Colors.black87,
+                      ),
                   keyboardType: TextInputType.datetime,
                   validator: (value) {
                     if (value != null && value.isNotEmpty && !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(value))
@@ -299,7 +331,9 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     ),
                     prefixIcon: const Icon(Icons.wc, color: Colors.blue),
                   ),
-                  style: TextStyle(color: isDarkMode ? Colors.white : Colors.black87),
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: isDarkMode ? Colors.white : Colors.black87,
+                      ),
                   items: ['Nam', 'Nữ', 'Khác'].map((String value) {
                     return DropdownMenuItem<String>(
                       value: value,
@@ -307,54 +341,65 @@ class _EditProfileScreenState extends State<EditProfileScreen> {
                     );
                   }).toList(),
                   onChanged: (value) {
-                    setState(() {
-                      _gender = value;
-                    });
+                    if (mounted) {
+                      setState(() {
+                        _gender = value;
+                      });
+                    }
                   },
                 ),
                 const SizedBox(height: 24),
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton(
-                    onPressed: () async {
-                      if (_formKey.currentState!.validate()) {
-                        try {
-                          String photoUrl = _selectedImage?.path ?? _photoUrlController.text;
-                          if (_selectedImage != null && !File(photoUrl).existsSync()) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Đường dẫn ảnh không hợp lệ!')),
-                            );
-                            return;
-                          }
-                          await authProvider.updateProfile(authProvider.user!.uid,
-                              name: _nameController.text,
-                              phone: _phoneController.text,
-                              photoUrl: photoUrl,
-                              bio: _bioController.text,
-                              address: _addressController.text,
-                              birthDate: _birthDateController.text.isNotEmpty
-                                  ? DateTime.parse(_birthDateController.text)
-                                  : null,
-                              gender: _gender);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Cập nhật thành công!')),
-                          );
-                          Navigator.pop(context);
-                        } catch (e) {
-                          print('Lỗi cập nhật: $e');
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text('Lỗi: $e')),
-                          );
-                        }
-                      }
-                    },
+                    onPressed: _isUploading
+                        ? null
+                        : () async {
+                            if (_formKey.currentState!.validate()) {
+                              try {
+                                String? photoUrl;
+                                if (_selectedImage != null) {
+                                  photoUrl = await _convertImageToBase64();
+                                  print('New photoUrl (base64): ${photoUrl?.substring(0, 50) ?? 'null'}...');
+                                }
+                                print('Final photoUrl: ${photoUrl ?? 'null'}');
+                                await authProvider.updateProfile(
+                                  authProvider.user!.uid,
+                                  name: _nameController.text,
+                                  phone: _phoneController.text,
+                                  photoUrl: photoUrl,
+                                  bio: _bioController.text,
+                                  address: _addressController.text,
+                                  birthDate: _birthDateController.text.isNotEmpty
+                                      ? DateTime.parse(_birthDateController.text)
+                                      : null,
+                                  gender: _gender,
+                                );
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(content: Text('Cập nhật thành công!')),
+                                  );
+                                  Navigator.pop(context);
+                                }
+                              } catch (e) {
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(content: Text('Lỗi khi cập nhật: $e')),
+                                  );
+                                }
+                              }
+                            }
+                          },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: isDarkMode ? const Color(0xFF1E90FF) : Colors.blue[600],
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 15),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      textStyle: Theme.of(context).textTheme.labelLarge,
                     ),
-                    child: const Text('Lưu', style: TextStyle(fontSize: 18)),
+                    child: _isUploading
+                        ? const CircularProgressIndicator(color: Colors.white)
+                        : const Text('Lưu'),
                   ),
                 ),
               ],

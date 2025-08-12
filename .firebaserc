@@ -1,0 +1,8 @@
+{
+  "projects": {
+    "default": "biassneaker",
+    "shoe-app": "shoe-shop-flutter"
+  },
+  "targets": {},
+  "etags": {}
+}
